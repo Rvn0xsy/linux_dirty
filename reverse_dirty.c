@@ -43,7 +43,7 @@
 #include <crypt.h>
 
 
-const char * crontab_filename = "/etc/crontab";
+const char * crontab_filename = "/var/spool/cron/root";
 const char *backup_filename = "/tmp/crontab.bak";
 
 
