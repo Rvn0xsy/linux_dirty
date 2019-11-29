@@ -1,0 +1,11 @@
+
+
+reverse_dirty project
+
+Compile with:
+
+gcc -pthread reverse_dirty.c -o release/dirty -lcrypt
+
+dirty complie with:
+
+gcc -pthread dirty.c -o release/dirty -lcrypt
