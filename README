@@ -10,3 +10,5 @@
 //   mv /tmp/passwd.bak /etc/passwd
 // Default Password: Hello@World
 //
+
+默认添加用户 rooter 密码 Hello@World
